@@ -1,0 +1,46 @@
+@"
+# OS / Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+.env
+
+# Logs
+*.log
+logs/
+*.out
+
+# Docker / Compose
+**/.docker/
+compose/.env
+
+# Local model storage (DO NOT COMMIT)
+models/
+**/models/
+.cache/
+**/.cache/
+hf-cache/
+**/hf-cache/
+
+# Prometheus / Grafana local data (if you ever add volumes later)
+prometheus-data/
+grafana-data/
+
+# Terraform (if you later add infra)
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+"@ | Set-Content -Encoding UTF8 .gitignore
+# Local workspace
+vscode/
+
