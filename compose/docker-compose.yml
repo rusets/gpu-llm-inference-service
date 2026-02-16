@@ -1,5 +1,6 @@
 services:
   vllm:
+    gpus: all
     image: vllm/vllm-openai:latest
     container_name: vllm
     restart: unless-stopped
@@ -43,17 +44,19 @@ services:
       - vllm
 
   webui:
-   image: ghcr.io/open-webui/open-webui:main
-   container_name: open-webui
-   restart: unless-stopped
-   ports:
-      - "3000:8080"
-   environment:
-      - OPENAI_API_BASE_URL=http://api:8080/v1
-      - OPENAI_API_KEY=local
-      - DEFAULT_MODEL=qwen25-14b
-   depends_on:
-      - api
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: open-webui
+    restart: unless-stopped
+    ports:
+       - "3000:8080"
+    environment:
+       - OPENAI_API_BASE_URL=http://api:8080/v1
+       - OPENAI_API_KEY=local
+       - DEFAULT_MODEL=qwen25-14b
+    depends_on:
+       - api
+    volumes:
+       - ../open-webui-data:/app/backend/data
 
   prometheus:
     image: prom/prometheus:latest
@@ -63,6 +66,7 @@ services:
       - "9090:9090"
     volumes:
       - ../monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
 
   grafana:
     image: grafana/grafana:latest
@@ -74,7 +78,9 @@ services:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin
     volumes:
+      - grafana-data:/var/lib/grafana
       - ../monitoring/grafana/provisioning:/etc/grafana/provisioning
+      - ../monitoring/grafana/dashboards:/var/lib/grafana/dashboards
     depends_on:
       - prometheus
 
@@ -87,3 +93,7 @@ services:
       - SYS_ADMIN
     ports:
       - "9400:9400"
+
+volumes:
+  grafana-data:
+  prometheus-data:
