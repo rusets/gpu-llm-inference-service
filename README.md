@@ -469,9 +469,9 @@ Hardware-level metrics: GPU utilization, memory usage, temperature, power draw, 
 
 ### Web Interface
 
-![Open WebUI](docs/screenshots/openwebui-home.png)
+![FastAPI Gateway Implementation](docs/screenshots/gpu-llm-fastapi-gateway-code.png)
 
-Open WebUI connected to the local API gateway and GPU-backed model.
+A compact, single-file `main.py` implementation demonstrating:
 
 ---
 
