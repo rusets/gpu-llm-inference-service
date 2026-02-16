@@ -412,4 +412,71 @@ These constraints are deliberate to keep the system understandable and auditable
 
 This is the kind of project that signals **systems thinking**, not just model usage.
 
+---
 
+## Screenshots
+
+### API Overview — Idle
+
+![API Overview Idle](docs/screenshots/gpu-llm-api-overview-idle.png)
+
+System in steady state.  
+No active requests, no queue, zero error rate.
+
+---
+
+### API Overview — Under Load
+
+![API Overview Load](docs/screenshots/gpu-llm-api-overview-load.png)
+
+Active traffic hitting the gateway.  
+RPS increases, latency changes, slots become saturated.
+
+---
+
+### API Gateway — Under Load
+
+![API Gateway Under Load](docs/screenshots/gpu-llm-api-gateway-under-load.png)
+
+Gateway-level view showing concurrency limit, queue wait time, latency percentiles, and error rate.
+
+---
+
+### Capacity & Saturation — Under Load
+
+![Capacity & Saturation](docs/screenshots/capacity_saturation_under_load.png)
+
+GPU slot utilization and queue pressure.  
+Demonstrates saturation behavior and latency growth.
+
+---
+
+### LLM Performance — Under Load
+
+![LLM Performance](docs/screenshots/gpu-llm-llm-performance-under-load.png)
+
+Model-level metrics including latency percentiles, tokens per second, and request rate under stress.
+
+---
+
+### Infrastructure Health — GPU Metrics
+
+![Infrastructure Health](docs/screenshots/infrastructure_health_under_load.png)
+
+Hardware-level metrics: GPU utilization, memory usage, temperature, power draw, and API CPU usage.
+
+---
+
+### Web Interface
+
+![Open WebUI](docs/screenshots/openwebui-home.png)
+
+Open WebUI connected to the local API gateway and GPU-backed model.
+
+---
+
+#  License
+
+- Released under the **MIT License** — free to use, modify, and learn from.  
+- © **Ruslan Dashkin (“� Ruslan AWS”)**.  
+- The branding “� Ruslan AWS” and related visuals are protected against commercial reuse.
