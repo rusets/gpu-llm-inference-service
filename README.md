@@ -570,8 +570,4 @@ A compact, single-file `main.py` implementation demonstrating:
 
 This project is released under the MIT License.
 
-You are free to use, modify, distribute, and build upon the code, subject to the terms of the MIT License.
-
-See the `LICENSE` file for full details.
-
-The name "🚀 Ruslan AWS" and associated branding elements are not covered by the open-source license and may not be used to imply endorsement without permission.
+See the `LICENSE` file for details.
