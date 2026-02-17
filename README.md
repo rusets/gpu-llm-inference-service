@@ -92,6 +92,26 @@ flowchart LR
 
 ---
 
+### Project structure
+
+```
+gpu-llm-inference-service/
+├── api/                                 # FastAPI GPU gateway (queueing, metrics, streaming proxy)
+├── compose/                             # Docker Compose stack (vLLM, gateway, Prometheus, Grafana, Open WebUI)
+├── monitoring/
+│   ├── prometheus/                      # Prometheus scrape config
+│   └── grafana/
+│       ├── dashboards/                  # Grafana dashboards JSON (versioned)
+│       └── provisioning/                # Datasource + dashboards provisioning
+├── docs/
+│   └── screenshots/                     # README screenshots (dashboards, UI, code)
+├── .gitignore
+├── LICENSE
+└── README.md
+```
+
+---
+
 ## Components
 
 ### vLLM (Inference Engine)
@@ -350,24 +370,6 @@ Verify GPU access from Docker:
 docker run --rm --gpus all nvidia/cuda:12.4.1-base-ubuntu22.04 nvidia-smi
 
 If the GPU is visible, you are ready to proceed.
-
-### Project structure
-
-```
-gpu-llm-inference-service/
-├── api/                                 # FastAPI GPU gateway (queueing, metrics, streaming proxy)
-├── compose/                             # Docker Compose stack (vLLM, gateway, Prometheus, Grafana, Open WebUI)
-├── monitoring/
-│   ├── prometheus/                      # Prometheus scrape config
-│   └── grafana/
-│       ├── dashboards/                  # Grafana dashboards JSON (versioned)
-│       └── provisioning/                # Datasource + dashboards provisioning
-├── docs/
-│   └── screenshots/                     # README screenshots (dashboards, UI, code)
-├── .gitignore
-├── LICENSE
-└── README.md
-```
 
 
 ### Start the stack
