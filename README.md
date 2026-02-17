@@ -1,55 +1,72 @@
 # GPU-Accelerated LLM Inference Service
 
-Production-oriented, GPU-backed LLM inference with explicit concurrency limits, queueing, streaming responses, and Prometheus/Grafana observability.
+<p align="center">
+  <img src="https://img.shields.io/badge/GPU-Aware_Architecture-76B900?logo=nvidia" />
+  <img src="https://img.shields.io/badge/Concurrency-Controlled-blue" />
+  <img src="https://img.shields.io/badge/Backpressure-Bounded_Queue-orange" />
+  <img src="https://img.shields.io/badge/Streaming-SSE-green" />
+  <img src="https://img.shields.io/badge/Latency-Observable-red" />
+  <img src="https://img.shields.io/badge/Metrics-Prometheus-E6522C?logo=prometheus" />
+  <img src="https://img.shields.io/badge/Dashboards-Grafana-F46800?logo=grafana" />
+  <img src="https://img.shields.io/badge/Inference-Production_Ready-black" />
+</p>
+
+I built a single-GPU LLM inference service focused on controlled concurrency, bounded queueing, streaming responses, and full observability.
 
 ---
 
 ## Overview
 
-This project is a GPU-accelerated LLM inference service built around **vLLM**, with a custom **API gateway**, **request queueing**, and **production-grade observability**.
+The service runs vLLM behind a custom FastAPI gateway that enforces concurrency limits, bounded queueing, and request timeouts.
 
-The system is designed to:
-- serve large language models efficiently on a single GPU,
-- control GPU saturation via concurrency limits and queueing,
-- expose OpenAI-compatible APIs,
-- provide clear operational visibility (latency, queue depth, errors, GPU usage).
+It is structured as a single-node inference stack with a clear separation between:
 
-The focus is not on fine-tuning or model training, but on **reliable, observable inference under load**.
+- Inference engine (vLLM)
+- Control layer (gateway)
+- Observability stack (Prometheus + Grafana)
+
+Key design constraints:
+
+- Fixed GPU concurrency limit (`MAX_ACTIVE=2`) to prevent VRAM exhaustion.
+- Bounded in-memory queue with explicit timeout and size limit.
+- Deterministic backpressure (429 / 503) instead of uncontrolled latency growth.
+- Real-time metrics for latency (p50/p95), queue depth, RPS, and GPU usage.
+- Five focused Grafana dashboards.
+
+Under sustained local load, the system:
+
+- Handles concurrent streaming requests without OOM.
+- Keeps queue depth bounded.
+- Makes saturation behavior observable.
 
 ---
 
 ## Why this project exists
 
-Most LLM demos focus on model quality or UI, but avoid the hardest part of real-world inference:
-**operating a GPU-backed service under load**.
+Most LLM examples focus on prompts or UI.  
+This project focuses on operating a model as a service.
 
-In practice, GPU inference introduces problems that do not exist in typical CPU services:
-- GPU memory is a hard limit — requests cannot be scaled horizontally inside one card.
-- Uncontrolled concurrency leads to OOM errors or extreme latency spikes.
-- Traditional autoscaling does not apply to a single-GPU node.
-- Without proper metrics, GPU saturation and queue buildup are invisible.
+Serving a large model on a single GPU introduces constraints:
 
-This project was built to address those gaps.
+- Memory is fixed.
+- Concurrency must be limited.
+- Latency degrades under burst traffic.
+- Saturation is invisible without instrumentation.
 
-It demonstrates how to:
-- protect a GPU using concurrency limits and explicit queueing,
-- apply backpressure instead of crashing or timing out silently,
-- expose meaningful operational metrics (latency, queue depth, error rate),
-- treat LLM inference as an **infrastructure problem**, not just a model problem.
-
-The goal is not to compete with hosted LLM platforms, but to show **how such systems are actually built and operated**.
+The goal is to make these constraints measurable and controlled.
 
 ---
 
 ## Architecture (Mermaid)
 
-The system is intentionally split into clear operational layers:
-- **Inference engine** (vLLM) — owns the GPU and executes model inference.
-- **API gateway** — enforces concurrency limits, queueing, and exposes metrics.
-- **Observability stack** — Prometheus + Grafana for real-time visibility.
-- **Optional UI** — Open WebUI for manual interaction.
+The system is separated into clear layers:
 
-This separation allows GPU protection, predictable latency, and production-style monitoring.
+- **Inference engine (vLLM)** — runs the model and owns the GPU.
+- **API gateway (FastAPI)** — enforces concurrency limits, manages queueing, and exposes metrics.
+- **Observability stack** — Prometheus and Grafana.
+- **Optional UI** — Open WebUI for manual testing.
+
+This separation keeps GPU control logic outside the inference engine and makes saturation and latency observable.
 
 ```mermaid
 flowchart LR
@@ -78,39 +95,50 @@ flowchart LR
 ## Components
 
 ### vLLM (Inference Engine)
-- Runs the **GPU-backed** model server (OpenAI-compatible API).
+
+- Runs the GPU-backed model server (OpenAI-compatible API).
+- Owns the GPU and performs inference.
 - Exposes:
   - `GET /health`
   - `GET /v1/models`
   - `POST /v1/chat/completions` (streaming)
-  - `GET /metrics` (Prometheus metrics from vLLM)
+  - `GET /metrics` (Prometheus metrics)
 
 ### API Gateway (FastAPI)
-- Single entrypoint you treat as “production API”.
-- Responsibilities:
-  - **Concurrency control** (`MAX_ACTIVE`) to protect GPU
-  - **Queueing / backpressure** (`QUEUE_MODE=queue|reject`, `QUEUE_MAX`, `QUEUE_TIMEOUT_S`)
-  - **Request timeouts** (`REQUEST_TIMEOUT_S`)
-  - Operational endpoints:
-    - `GET /health` (checks vLLM readiness)
-    - `GET /metrics` (gateway Prometheus metrics)
-    - `GET /v1/models` (proxy)
-    - `POST /v1/chat/completions` (proxy + queue + stream)
+
+- Acts as the single public entrypoint.
+- Handles GPU protection and request flow control.
+
+Responsibilities:
+
+- Concurrency control (`MAX_ACTIVE`)
+- Queueing and backpressure (`QUEUE_MODE`, `QUEUE_MAX`, `QUEUE_TIMEOUT_S`)
+- Request timeouts (`REQUEST_TIMEOUT_S`)
+- Operational endpoints:
+  - `GET /health`
+  - `GET /metrics`
+  - `GET /v1/models` (proxy)
+  - `POST /v1/chat/completions` (proxy + queue + stream)
 
 ### Prometheus
+
 - Scrapes metrics from:
   - API Gateway: `http://api:8080/metrics`
   - vLLM: `http://vllm:8000/metrics`
   - (Optional) DCGM Exporter: `http://dcgm-exporter:9400/metrics`
+- Collects request, latency, queue, and GPU metrics.
 
 ### Grafana
-- Pre-provisioned Prometheus datasource.
-- Dashboards stored as JSON in:
+
+- Uses Prometheus as a datasource.
+- Dashboards are stored as JSON in:
   - `monitoring/grafana/provisioning/dashboards/`
+- Visualizes latency, saturation, queue depth, and GPU usage.
 
 ### Open WebUI (Optional)
-- Human-friendly UI to interact with the model.
-- Points to the same OpenAI-compatible endpoints (either vLLM directly or the API gateway, depending on configuration).
+
+- Provides a UI for manual interaction and testing.
+- Connects to the same OpenAI-compatible endpoints (vLLM or the API gateway).
 
 ---
 
@@ -172,142 +200,150 @@ flowchart LR
 
 ## Observability & Metrics
 
-This project is built to be observable from day one: every critical bottleneck (GPU concurrency, queueing, latency, errors, GPU health) is measurable and dashboardable.
+The system exposes metrics for all critical control points: concurrency, queueing, latency, errors, and GPU state.
 
 ### Metrics sources
 
-- **API Gateway** exposes Prometheus metrics:
+- **API Gateway**
   - `http://api:8080/metrics`
-  - Focus: request rate, error rate, latency, active requests, queue depth, tokens/sec (approx)
+  - Request rate, error rate, latency, active requests, queue depth, approximate tokens/sec
 
-- **vLLM** exposes Prometheus metrics:
+- **vLLM**
   - `http://vllm:8000/metrics`
-  - Focus: vLLM internal performance counters (varies by version/model)
+  - Internal inference metrics (model-dependent)
 
-- **DCGM Exporter (NVIDIA)** exposes GPU metrics:
+- **DCGM Exporter (NVIDIA)**
   - `http://dcgm-exporter:9400/metrics`
-  - Focus: GPU utilization, memory used/free, temperature, power, etc.
+  - GPU utilization, memory usage, temperature, power draw
 
-### Key operational signals (what you should watch)
+### Core operational signals
 
-**Traffic & errors**
+**Traffic and errors**
 - `api_requests_total` (rate)
-- error rate excluding noise endpoints (`/metrics`, `/health`)
+- Error rate excluding `/metrics` and `/health`
 
 **Latency**
-- `api_request_latency_seconds_bucket` (p50/p95/p99 via `histogram_quantile()`)
+- `api_request_latency_seconds_bucket`
+  - p50 / p95 / p99 via `histogram_quantile()`
 
 **Backpressure**
 - `api_active_requests`
 - `api_queue_depth`
-- saturation proxy: `api_active_requests / MAX_ACTIVE`
+- Saturation proxy: `api_active_requests / MAX_ACTIVE`
 
-**GPU health (DCGM)**
-- GPU utilization (%)
-- framebuffer memory used/free (MiB)
-- temperature (°C)
-- power draw (W)
+**GPU state**
+- Utilization (%)
+- Memory used / free (MiB)
+- Temperature (°C)
+- Power draw (W)
 
 ### Grafana dashboards
 
-The included dashboard is designed for “operator view”:
-- current health at a glance (stat panels)
-- performance trends (time series)
-- bottlenecks (queue vs saturation vs latency)
-- GPU constraints (util/mem/temp)
+Dashboards are organized to show:
+
+- Current system state
+- Latency trends
+- Queue and saturation behavior
+- GPU limits and utilization
 
 ### Prometheus scrape targets
 
 By default, Prometheus scrapes:
+
 - `api:8080`
 - `vllm:8000`
 - `dcgm-exporter:9400`
 
-If a target shows `up=0`, the dashboards will display `No data`.
+If a target reports `up=0`, related panels will show no data.
 
 ---
 
 ## Queueing & Backpressure
 
-GPU is a shared and limited resource.  
-This project explicitly addresses this by enforcing **controlled concurrency** and **backpressure** at the API layer.
+A GPU is a shared and limited resource.  
+To keep behavior predictable, the gateway enforces explicit concurrency limits and backpressure at the API layer.
 
-The goal is not just to “make requests work”, but to ensure **predictable latency, stability, and observability under load**.
+The goal is to keep latency bounded and system behavior measurable under load.
 
 ### Concurrency limit (GPU slots)
 
-The API Gateway enforces a fixed upper bound on how many requests may actively use the GPU at the same time.
+The API Gateway enforces a fixed upper bound on concurrent GPU-backed requests.
 
-- `MAX_ACTIVE` — maximum number of concurrent GPU-backed requests
+- `MAX_ACTIVE` — maximum number of simultaneous inference streams
 - Metrics:
-  - `api_active_requests` — current number of active GPU requests
-  - GPU saturation (proxy):
+  - `api_active_requests` — current number of active requests
+  - Saturation proxy:
     - `api_active_requests / MAX_ACTIVE`
 
-This prevents VRAM exhaustion and latency collapse.
+This prevents VRAM exhaustion and uncontrolled latency growth.
 
 ### Queue mode vs Reject mode
 
-Two backpressure strategies are supported:
+Two backpressure strategies are supported.
 
 #### Queue mode (`QUEUE_MODE=queue`)
-- Requests exceeding `MAX_ACTIVE` are placed into an in-memory queue
+
+- Requests exceeding `MAX_ACTIVE` enter a bounded in-memory queue
 - Limits:
   - `QUEUE_MAX` — maximum queue length
-  - `QUEUE_TIMEOUT_S` — maximum wait time before failing with 503
+  - `QUEUE_TIMEOUT_S` — maximum wait time before returning 503
 
-This mode maximizes throughput at the cost of higher tail latency.
+This increases throughput at the cost of higher tail latency.
 
 #### Reject mode (`QUEUE_MODE=reject`)
-- Requests are immediately rejected with HTTP 429 when GPU is busy
-- Suitable when clients support retries with exponential backoff
 
-This mode prioritizes latency predictability and fast failure.
+- Requests are immediately rejected with HTTP 429 when no GPU slot is available
+- Intended for clients that implement retries with backoff
 
-### Why this matters in production
+This keeps latency predictable and avoids queue buildup.
 
-Without backpressure:
-- Latency grows unbounded
-- Queues build up invisibly
-- The system fails catastrophically under load
+### Operational impact
 
-With explicit backpressure:
+Without explicit backpressure:
+
+- Latency increases under burst traffic
+- Queue growth is not visible
+- GPU memory pressure can escalate
+
+With explicit limits:
+
 - Latency remains bounded
-- Failures are intentional and observable (429 / 503)
-- Bottlenecks are immediately visible in Grafana (queue depth, saturation)
+- Rejections are intentional (429 / 503)
+- Saturation is visible via metrics and dashboards
 
-### Tuning guidelines
+### Tuning considerations
 
-- For **maximum throughput**:
-  - Increase `MAX_ACTIVE` cautiously (bounded by GPU memory)
-  - Enable queueing with a reasonable timeout
+- To increase throughput:
+  - Raise `MAX_ACTIVE` cautiously, within GPU memory limits
+  - Use queue mode with a bounded timeout
 
-- For **strict latency SLOs**:
-  - Use `QUEUE_MODE=reject`
-  - Handle retries on the client side
+- To prioritize latency:
+  - Use reject mode
+  - Handle retries client-side
 
-- If `api_queue_depth` grows continuously:
-  - Traffic exceeds GPU capacity, or
-  - `MAX_ACTIVE` is too low, or
-  - The model / context size is too heavy
+- Continuous growth in `api_queue_depth` usually indicates:
+  - Incoming traffic exceeds GPU capacity
+  - `MAX_ACTIVE` is too low
+  - Context size or model size is too heavy
 
 ---
 
 ## How to run (local GPU)
 
-This project is designed to run on a **single GPU machine** using Docker and NVIDIA Container Toolkit.
+This project runs on a single GPU machine using Docker and NVIDIA Container Toolkit.
 
-It has been tested with:
-- NVIDIA GPUs (e.g. RTX 3090 / 4090 / A-series)
+Tested with:
+- NVIDIA GPUs (RTX 3090 / 4090 / A-series)
 - NVIDIA drivers with CUDA support
-- Docker + nvidia-container-toolkit
+- Docker
+- nvidia-container-toolkit
 
 ### Prerequisites
 
 - Docker Engine
 - Docker Compose v2
 - NVIDIA driver installed on the host
-- NVIDIA Container Toolkit (nvidia-ctk)
+- NVIDIA Container Toolkit
 
 Verify GPU access from Docker:
 
@@ -317,13 +353,22 @@ If the GPU is visible, you are ready to proceed.
 
 ### Project structure
 
+```
 gpu-llm-inference-service/
-├── api/                    # FastAPI GPU gateway (queueing, metrics)
-├── compose/                # docker-compose.yaml
+├── api/                                 # FastAPI GPU gateway (queueing, metrics, streaming proxy)
+├── compose/                             # Docker Compose stack (vLLM, gateway, Prometheus, Grafana, Open WebUI)
 ├── monitoring/
-│   ├── prometheus/         # Prometheus config
-│   └── grafana/            # Grafana provisioning & dashboards
+│   ├── prometheus/                      # Prometheus scrape config
+│   └── grafana/
+│       ├── dashboards/                  # Grafana dashboards JSON (versioned)
+│       └── provisioning/                # Datasource + dashboards provisioning
+├── docs/
+│   └── screenshots/                     # README screenshots (dashboards, UI, code)
+├── .gitignore
+├── LICENSE
 └── README.md
+```
+
 
 ### Start the stack
 
@@ -380,37 +425,58 @@ docker compose down
 
 ## Limitations
 
-- **Single-node design**
-  - The project intentionally targets one GPU host (no multi-node scheduling, no sharding).
-- **No autoscaling**
-  - GPU capacity is fixed; excess load is handled via queueing or rejection.
-- **Approximate token accounting**
-  - Tokens-per-second and token counts are estimated from streaming deltas, not exact tokenizer output.
-- **No authentication / multi-tenant isolation**
-  - API is open by design to keep focus on infrastructure and operations.
-- **Local-first focus**
-  - Not optimized for cloud cost efficiency or managed GPU services out of the box.
+- Single-node design  
+  - Runs on one GPU host (no multi-node scheduling or sharding).
 
-These constraints are deliberate to keep the system understandable and auditable end-to-end.
+- No autoscaling  
+  - GPU capacity is fixed; excess load is handled via queueing or rejection.
+
+- Approximate token accounting  
+  - Tokens-per-second and token counts are estimated from streaming deltas.
+
+- No authentication or multi-tenant isolation  
+  - The API is intentionally open to keep focus on infrastructure behavior.
+
+- Local-first focus  
+  - Not optimized for managed cloud GPU platforms out of the box.
+
+These constraints are deliberate to keep the system simple, transparent, and easy to reason about end-to-end.
 
 ---
 
 ## What this project demonstrates
 
-- **GPU-aware system design**
-  - Treating GPU as a scarce, shared resource rather than an infinite backend.
-- **Production-style LLM serving**
-  - vLLM inference with an explicit API gateway instead of direct client access.
-- **Backpressure and queueing mechanics**
-  - Protecting GPU workloads under bursty or sustained load.
-- **Operational observability**
-  - Metrics that matter: latency, queue depth, active requests, throughput.
-- **Clean separation of concerns**
-  - Inference engine, API control plane, and observability stack are isolated.
-- **Portfolio-level engineering**
-  - A realistic system that mirrors how internal LLM services are built, not demo apps.
+- GPU-aware service design  
+- Explicit concurrency control and bounded queueing  
+- Deterministic backpressure under load  
+- Observable latency and saturation behavior  
+- Clean separation between inference, control layer, and monitoring  
 
-This is the kind of project that signals **systems thinking**, not just model usage.
+The focus is on infrastructure behavior under load, not model benchmarking or prompt quality.
+
+---
+
+## Future Improvements
+
+The current version is focused on a single GPU host. Next steps that would make it closer to a production setup:
+
+- Semantic caching (Redis)
+  - Cache repeated requests to reduce redundant GPU work.
+  - Cache key should include model, prompt, and decoding params.
+
+- Request prioritization
+  - Priority classes for latency critical traffic.
+  - Avoid starvation with basic fairness rules.
+
+- Multiple vLLM backends
+  - Support routing across multiple GPU backends (local or multi node).
+
+- Precise token tracking
+  - Use the model tokenizer in the gateway for exact token counts and usage metrics.
+
+- Kubernetes deployment (optional)
+  - Run the stack on Kubernetes and scale control plane services.
+  - Use custom metrics like queue depth and saturation as signals.
 
 ---
 
@@ -475,8 +541,12 @@ A compact, single-file `main.py` implementation demonstrating:
 
 ---
 
-#  License
+## License
 
-- Released under the **MIT License** — free to use, modify, and learn from.  
-- © **Ruslan Dashkin (“� Ruslan AWS”)**.  
-- The branding “� Ruslan AWS” and related visuals are protected against commercial reuse.
+This project is released under the MIT License.
+
+You are free to use, modify, distribute, and build upon the code, subject to the terms of the MIT License.
+
+See the `LICENSE` file for full details.
+
+The name "🚀 Ruslan AWS" and associated branding elements are not covered by the open-source license and may not be used to imply endorsement without permission.
