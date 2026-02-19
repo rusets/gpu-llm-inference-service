@@ -44,7 +44,7 @@ Under sustained local load, the system:
 ### Engineering Highlight
 
 Stabilized GPU telemetry (DCGM), restored full saturation visibility, and enabled safe `MAX_ACTIVE` tuning under load.  
-See `docs/engineering-insights.md` for full details.
+See [docs/engineering-insights.md](docs/engineering-insights.md) for full details.
 
 ---
 
@@ -180,7 +180,7 @@ Responsibilities:
 4. Streaming response is proxied from vLLM (SSE).
 5. Metrics are updated (latency, queue depth, active slots).
 
-Full flow description: see `docs/request-lifecycle.md`.
+Full flow description: see [docs/request-lifecycle.md](docs/request-lifecycle.md).
 
 ---
 
@@ -195,14 +195,14 @@ The system exposes metrics for all critical control points:
 
 Metrics are collected via Prometheus and visualized in Grafana dashboards.
 
-For full metric breakdown and dashboard details, see:
-`docs/observability.md`
+For full metric breakdown and dashboard details, see
+[docs/observability.md](docs/observability.md).
 
 ---
 
 ## Concurrency & Backpressure
 
-See docs/backpressure.md for detailed concurrency model and backpressure behavior.
+See the [backpressure documentation](docs/backpressure.md) for detailed concurrency behavior.
 
 ---
 
@@ -287,7 +287,7 @@ docker compose down
 
 This project intentionally focuses on a single-node, infrastructure-first design.
 
-See docs/limitations.md for full details.
+See the [limitations documentation](docs/limitations.md) for full details.
 
 ---
 
@@ -305,7 +305,7 @@ The focus is on infrastructure behavior under load, not model benchmarking or pr
 
 ## Roadmap
 
-See docs/roadmap.md for planned improvements and future direction.
+See the [roadmap](docs/roadmap.md) for planned improvements and future direction.
 
 ---
 
