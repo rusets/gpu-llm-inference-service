@@ -41,26 +41,10 @@ Under sustained local load, the system:
 
 ---
 
-### The Challenge
+### Engineering Highlight
 
-During development, I identified limitations in standard monitoring setups:
-
-- GPU telemetry was incomplete or unstable under containerized workloads.
-- DCGM exporter showed intermittent metric dropouts due to driver and exporter mismatches.
-- Saturation and memory pressure were not visible until latency degraded.
-
-These gaps made safe concurrency tuning difficult.
-
-### The Outcome
-
-I stabilized GPU telemetry and implemented a hardened Prometheus and Grafana stack that exposed real saturation behavior.
-
-Results:
-
-- Reduced change failure rates by 80% through improved observability.
-- Enabled safe `MAX_ACTIVE` tuning using real-time saturation metrics.
-- Made GPU bottlenecks measurable instead of implicit.
-- Validated system stability under sustained load testing.
+Stabilized GPU telemetry (DCGM), restored full saturation visibility, and enabled safe `MAX_ACTIVE` tuning under load.  
+See `docs/engineering-insights.md` for full details.
 
 ---
 
@@ -185,189 +169,40 @@ Responsibilities:
 
 ---
 
-## Request lifecycle
+## Request Lifecycle (High-Level)
 
-1. **Client request**
-   - A client (Open WebUI, curl, or any OpenAI-compatible SDK) sends:
-     ```
-     POST /v1/chat/completions
-     ```
-   - Request is sent to the **API Gateway**, not directly to vLLM.
+1. Client sends `POST /v1/chat/completions` to the API Gateway.
+2. Gateway performs health checks and concurrency validation.
+3. Request either:
+   - Proceeds immediately (free GPU slot), or
+   - Enters bounded queue, or
+   - Is rejected (429).
+4. Streaming response is proxied from vLLM (SSE).
+5. Metrics are updated (latency, queue depth, active slots).
 
-2. **Health & readiness check**
-   - API Gateway verifies that vLLM is reachable and has at least one loaded model.
-   - If vLLM is unavailable:
-     - Request is rejected with `503 Service Unavailable`.
-
-3. **Concurrency gate (GPU protection)**
-   - The gateway enforces `MAX_ACTIVE`:
-     - This represents the **maximum number of concurrent GPU inference streams**.
-   - If a slot is free → request proceeds immediately.
-   - If no slot is free:
-     - `QUEUE_MODE=queue` → request enters a bounded queue.
-     - `QUEUE_MODE=reject` → request fails fast with `429`.
-
-4. **Queueing & backpressure**
-   - Queue is bounded (`QUEUE_MAX`).
-   - Each queued request:
-     - Waits up to `QUEUE_TIMEOUT_S`.
-     - If timeout is exceeded → `503 Queue timeout`.
-   - Queue depth is tracked as a Prometheus gauge.
-
-5. **Streaming inference**
-   - Once a GPU slot is acquired:
-     - Request is forwarded to:
-       ```
-       vLLM /v1/chat/completions (stream=true)
-       ```
-   - Tokens are streamed back to the client as **Server-Sent Events (SSE)**.
-   - Gateway does **not buffer** full responses.
-
-6. **Metrics & accounting**
-   - During streaming:
-     - Active requests gauge is incremented.
-     - Tokens are counted approximately.
-     - Time to first token and throughput are estimated.
-   - On completion:
-     - Latency histogram is observed.
-     - GPU slot is released.
-     - Queue depth is updated.
-
-7. **Client receives final event**
-   - Final SSE frame contains:
-     - Approximate token count
-     - Total latency
-     - Tokens-per-second estimate
+Full flow description: see `docs/request-lifecycle.md`.
 
 ---
 
-## Observability & Metrics
+## Observability
 
-The system exposes metrics for all critical control points: concurrency, queueing, latency, errors, and GPU state.
+The system exposes metrics for all critical control points:
 
-### Metrics sources
+- Request rate and error rate
+- Latency percentiles (p50 / p95 / p99)
+- Active GPU slots and queue depth
+- GPU utilization and memory (DCGM)
 
-- **API Gateway**
-  - `http://api:8080/metrics`
-  - Request rate, error rate, latency, active requests, queue depth, approximate tokens/sec
+Metrics are collected via Prometheus and visualized in Grafana dashboards.
 
-- **vLLM**
-  - `http://vllm:8000/metrics`
-  - Internal inference metrics (model-dependent)
-
-- **DCGM Exporter (NVIDIA)**
-  - `http://dcgm-exporter:9400/metrics`
-  - GPU utilization, memory usage, temperature, power draw
-
-### Core operational signals
-
-**Traffic and errors**
-- `api_requests_total` (rate)
-- Error rate excluding `/metrics` and `/health`
-
-**Latency**
-- `api_request_latency_seconds_bucket`
-  - p50 / p95 / p99 via `histogram_quantile()`
-
-**Backpressure**
-- `api_active_requests`
-- `api_queue_depth`
-- Saturation proxy: `api_active_requests / MAX_ACTIVE`
-
-**GPU state**
-- Utilization (%)
-- Memory used / free (MiB)
-- Temperature (°C)
-- Power draw (W)
-
-### Grafana dashboards
-
-Dashboards are organized to show:
-
-- Current system state
-- Latency trends
-- Queue and saturation behavior
-- GPU limits and utilization
-
-### Prometheus scrape targets
-
-By default, Prometheus scrapes:
-
-- `api:8080`
-- `vllm:8000`
-- `dcgm-exporter:9400`
-
-If a target reports `up=0`, related panels will show no data.
+For full metric breakdown and dashboard details, see:
+`docs/observability.md`
 
 ---
 
-## Queueing & Backpressure
+## Concurrency & Backpressure
 
-A GPU is a shared and limited resource.  
-To keep behavior predictable, the gateway enforces explicit concurrency limits and backpressure at the API layer.
-
-The goal is to keep latency bounded and system behavior measurable under load.
-
-### Concurrency limit (GPU slots)
-
-The API Gateway enforces a fixed upper bound on concurrent GPU-backed requests.
-
-- `MAX_ACTIVE` — maximum number of simultaneous inference streams
-- Metrics:
-  - `api_active_requests` — current number of active requests
-  - Saturation proxy:
-    - `api_active_requests / MAX_ACTIVE`
-
-This prevents VRAM exhaustion and uncontrolled latency growth.
-
-### Queue mode vs Reject mode
-
-Two backpressure strategies are supported.
-
-#### Queue mode (`QUEUE_MODE=queue`)
-
-- Requests exceeding `MAX_ACTIVE` enter a bounded in-memory queue
-- Limits:
-  - `QUEUE_MAX` — maximum queue length
-  - `QUEUE_TIMEOUT_S` — maximum wait time before returning 503
-
-This increases throughput at the cost of higher tail latency.
-
-#### Reject mode (`QUEUE_MODE=reject`)
-
-- Requests are immediately rejected with HTTP 429 when no GPU slot is available
-- Intended for clients that implement retries with backoff
-
-This keeps latency predictable and avoids queue buildup.
-
-### Operational impact
-
-Without explicit backpressure:
-
-- Latency increases under burst traffic
-- Queue growth is not visible
-- GPU memory pressure can escalate
-
-With explicit limits:
-
-- Latency remains bounded
-- Rejections are intentional (429 / 503)
-- Saturation is visible via metrics and dashboards
-
-### Tuning considerations
-
-- To increase throughput:
-  - Raise `MAX_ACTIVE` cautiously, within GPU memory limits
-  - Use queue mode with a bounded timeout
-
-- To prioritize latency:
-  - Use reject mode
-  - Handle retries client-side
-
-- Continuous growth in `api_queue_depth` usually indicates:
-  - Incoming traffic exceeds GPU capacity
-  - `MAX_ACTIVE` is too low
-  - Context size or model size is too heavy
+See docs/backpressure.md for detailed concurrency model and backpressure behavior.
 
 ---
 
@@ -450,22 +285,9 @@ docker compose down
 
 ## Limitations
 
-- Single-node design  
-  - Runs on one GPU host (no multi-node scheduling or sharding).
+This project intentionally focuses on a single-node, infrastructure-first design.
 
-- No autoscaling  
-  - GPU capacity is fixed; excess load is handled via queueing or rejection.
-
-- Approximate token accounting  
-  - Tokens-per-second and token counts are estimated from streaming deltas.
-
-- No authentication or multi-tenant isolation  
-  - The API is intentionally open to keep focus on infrastructure behavior.
-
-- Local-first focus  
-  - Not optimized for managed cloud GPU platforms out of the box.
-
-These constraints are deliberate to keep the system simple, transparent, and easy to reason about end-to-end.
+See docs/limitations.md for full details.
 
 ---
 
@@ -481,27 +303,9 @@ The focus is on infrastructure behavior under load, not model benchmarking or pr
 
 ---
 
-## Future Improvements
+## Roadmap
 
-The current version is focused on a single GPU host. Next steps that would make it closer to a production setup:
-
-- Semantic caching (Redis)
-  - Cache repeated requests to reduce redundant GPU work.
-  - Cache key should include model, prompt, and decoding params.
-
-- Request prioritization
-  - Priority classes for latency critical traffic.
-  - Avoid starvation with basic fairness rules.
-
-- Multiple vLLM backends
-  - Support routing across multiple GPU backends (local or multi node).
-
-- Precise token tracking
-  - Use the model tokenizer in the gateway for exact token counts and usage metrics.
-
-- Kubernetes deployment (optional)
-  - Run the stack on Kubernetes and scale control plane services.
-  - Use custom metrics like queue depth and saturation as signals.
+See docs/roadmap.md for planned improvements and future direction.
 
 ---
 
